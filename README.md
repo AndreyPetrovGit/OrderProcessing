@@ -32,15 +32,16 @@ curl http://localhost:8080/stats
 
 ## 📐 Design Decisions
 
-### Why RabbitMQ over Redis?
-| Factor | RabbitMQ ✓ | Redis |
-|--------|------------|-------|
-| Message acknowledgments | Built-in | Manual implementation |
-| Redelivery on failure | Automatic | Manual |
-| Management UI | Included | Separate tool needed |
-| Complexity | Simple for queues | Better for caching |
+### Why RabbitMQ?
 
-**Conclusion:** RabbitMQ provides reliable delivery out-of-the-box with less code.
+I chose RabbitMQ as the message broker for asynchronous order processing.
+
+
+**Why not Kafka?** Overkill for single-service order processing. Kafka shines for event sourcing, log aggregation, multi-consumer scenarios.
+
+**Why not Redis?** No built-in acks/redelivery. Would need manual implementation of reliability patterns.
+
+**Conclusion:** RabbitMQ is the sweet spot — reliable delivery with minimal code, perfect for task queues.
 
 ### Architecture
 ```
@@ -55,8 +56,14 @@ POST /order → DB (Order + Outbox) → OutboxProcessor → RabbitMQ → Worker 
 | Entity | Purpose |
 |--------|---------|
 | **Order** | CustomerId, Items (JSON), TotalAmount, Status, RowVersion |
-| **Inventory** | ProductId, Quantity (placeholder for stock validation) |
+| **Inventory** | ProductId, Quantity, Price — used by worker to calculate total and decrement stock |
 | **OutboxMessage** | Ensures RabbitMQ publish even if initial publish fails |
+
+### Business Logic (Worker)
+1. Parse order items from JSON
+2. For each item: lookup `Inventory.Price`, check stock, decrement `Quantity`
+3. Calculate `TotalAmount` = Σ(price × quantity)
+4. Mark order as Processed
 
 ---
 
@@ -74,10 +81,10 @@ POST /order → DB (Order + Outbox) → OutboxProcessor → RabbitMQ → Worker 
 ## 📝 Assumptions
 
 - Client generates unique Order IDs (UUIDs) — acts as idempotency key
-- TotalAmount is calculated server-side during processing (simulated as random for demo)
+- TotalAmount is calculated server-side from Inventory prices during processing
 - Single instance deployment — RowVersion handles concurrency, no distributed locks
 - Development environment — no HTTPS, no authentication
-- Inventory entity exists as placeholder — not integrated into order validation yet
+- Inventory is pre-seeded with sample products (PROD-001, PROD-002, PROD-003)
 
 ---
 
@@ -106,6 +113,66 @@ cd OrderProcessing.Tests
 dotnet test
 ```
 
-**7 tests** covering: outbox, idempotency, concurrency, error handling.
+**13 tests** covering: outbox, idempotency, concurrency handling, inventory pricing, stock decrement.
 
 > **Note:** A load test client exists in `OrderProcessing.Client/` for internal verification.
+
+---
+
+## 🔧 Advanced
+
+### Persistence & Container Restart
+
+| Component | Data Location | On Restart |
+|-----------|---------------|------------|
+| **PostgreSQL** | Docker volume `postgres_data` | ✓ Data survives |
+| **RabbitMQ** | Docker volume `rabbitmq_data` | ✓ Queues + messages survive |
+| **App container** | Stateless | ✓ Reconnects to DB and RabbitMQ |
+
+**Test it:** `docker-compose down && docker-compose up` — orders and queue state persist.
+
+**Full reset:** `docker-compose down -v` — removes volumes, fresh start.
+
+### Exactly-Once: Failure Scenarios
+
+| Scenario | What Happens | How It's Handled |
+|----------|--------------|------------------|
+| **App crashes after DB save, before RabbitMQ publish** | Order in DB, no message in queue | OutboxProcessor picks up unprocessed OutboxMessage, publishes to RabbitMQ |
+| **RabbitMQ down during publish** | OutboxProcessor retries every 1s | Eventually publishes when RabbitMQ recovers |
+| **Worker crashes mid-processing** | Message not ACKed | RabbitMQ redelivers; worker checks `Status`, skips if already Processed |
+| **Worker crashes after DB save, before ACK** | Order Processed, message redelivered | Worker sees `Status=Processed`, skips, ACKs |
+| **Duplicate message in queue** | Same OrderId twice | Worker idempotency check: `if Status=Processed → skip` |
+| **Two workers process same order** | Race condition | Optimistic locking: one succeeds, other gets `DbUpdateConcurrencyException` → skips |
+| **DB down during processing** | Worker can't save | Exception → NACK → RabbitMQ requeues message |
+| **Duplicate POST request** | Same OrderId submitted twice | Endpoint checks `FindAsync(id)`, returns existing order |
+
+### Message Flow Guarantees
+
+```
+1. POST /order
+   └─ BEGIN TRANSACTION
+       ├─ INSERT Order (Pending)
+       └─ INSERT OutboxMessage
+      COMMIT ← atomic, both or neither
+
+2. OutboxProcessor (background, 1s loop)
+   └─ SELECT * FROM OutboxMessages WHERE ProcessedAt IS NULL
+       └─ RabbitMQ.Publish(OrderId)
+           └─ UPDATE OutboxMessage SET ProcessedAt = NOW()
+
+3. Worker (on message received)
+   └─ SELECT Order WHERE Id = ?
+       ├─ IF Status = Processed → ACK, skip
+       └─ ELSE → Process, UPDATE Status = Processed
+           └─ SaveChanges (with RowVersion check)
+               ├─ Success → ACK
+               └─ ConcurrencyException → ACK (another worker won)
+```
+
+### What Exactly-Once Does NOT Cover
+
+| Scenario | Why | Mitigation |
+|----------|-----|------------|
+| **Network partition during processing** | Message could be redelivered | Idempotency handles it |
+| **Inventory double-decrement** | No row-level locking on Inventory | Would need `SELECT FOR UPDATE` or separate inventory service |
+| **External API calls in worker** | Can't roll back external calls | Saga pattern or compensation logic |

@@ -23,6 +23,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Inventory>(e =>
         {
             e.HasKey(i => i.ProductId);
+            e.HasData(
+                new Inventory { ProductId = "PROD-001", Quantity = 100, Price = 29.99m },
+                new Inventory { ProductId = "PROD-002", Quantity = 50, Price = 49.99m },
+                new Inventory { ProductId = "PROD-003", Quantity = 200, Price = 9.99m }
+            );
         });
 
         modelBuilder.Entity<OutboxMessage>(e =>

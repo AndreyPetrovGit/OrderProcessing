@@ -77,35 +77,51 @@ public class OrderProcessingWorker : BackgroundService
             return;
         }
 
-        // Simulate business logic: calculate price and apply delay
-        await Task.Delay(1000);
+        // Parse order items
+        var items = JsonSerializer.Deserialize<List<OrderItem>>(order.ItemsJson) ?? [];
         
-        // Calculate TotalAmount (random for demo, real impl would query price catalog)
-        var calculatedAmount = Math.Round((decimal)(Random.Shared.NextDouble() * 500 + 10), 2);
-        
-        if (order.TotalAmount.HasValue)
+        // Calculate total from inventory prices and check stock
+        decimal totalAmount = 0;
+        foreach (var item in items)
         {
-            // Client provided expected price - compare with calculated
-            var diff = Math.Abs(order.TotalAmount.Value - calculatedAmount);
-            _logger.LogInformation("Order {OrderId}: expected={Expected}, calculated={Calculated}, diff={Diff}",
-                orderId, order.TotalAmount.Value, calculatedAmount, diff);
+            var inventory = await db.Inventory.FirstOrDefaultAsync(i => i.ProductId == item.ProductId);
+            if (inventory == null)
+            {
+                _logger.LogWarning("Order {OrderId}: Product {ProductId} not found in inventory", orderId, item.ProductId);
+                continue;
+            }
+            
+            if (inventory.Quantity < item.Quantity)
+            {
+                _logger.LogWarning("Order {OrderId}: Insufficient stock for {ProductId} (need {Need}, have {Have})",
+                    orderId, item.ProductId, item.Quantity, inventory.Quantity);
+            }
+            
+            // Decrement inventory
+            inventory.Quantity = Math.Max(0, inventory.Quantity - item.Quantity);
+            totalAmount += inventory.Price * item.Quantity;
         }
+
+        // Simulate processing delay
+        await Task.Delay(100);
         
-        // Always set to calculated amount (overwrite expected with actual)
-        order.TotalAmount = calculatedAmount;
+        order.TotalAmount = totalAmount;
         order.Status = OrderStatus.Processed;
         order.ProcessedAt = DateTime.UtcNow;
 
         try
         {
             await db.SaveChangesAsync();
-            _logger.LogInformation("Order {OrderId} processed successfully", orderId);
+            _logger.LogInformation("Order {OrderId} processed: {ItemCount} items, total={Total}", 
+                orderId, items.Count, totalAmount);
         }
         catch (DbUpdateConcurrencyException)
         {
             _logger.LogWarning("Order {OrderId} was already processed by another worker (concurrency)", orderId);
         }
     }
+    
+    private record OrderItem(string ProductId, int Quantity);
 
     private record OrderMessage(Guid OrderId);
 }
