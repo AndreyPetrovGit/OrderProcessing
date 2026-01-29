@@ -1,0 +1,30 @@
+@OrderProcessing_HostAddress = http://localhost:5070
+
+GET {{OrderProcessing_HostAddress}}/test/
+Accept: application/json
+
+###
+
+POST {{OrderProcessing_HostAddress}}/order
+Content-Type: application/json
+
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "customerId": 55,
+  "items": [
+    {
+      "productId": "premium-room",
+      "quantity": 1
+    },
+    {
+      "productId": "standard-room",
+      "quantity": 2
+    }
+  ]
+}
+
+
+###
+GET {{OrderProcessing_HostAddress}}/order
+Accept: application/json
+
