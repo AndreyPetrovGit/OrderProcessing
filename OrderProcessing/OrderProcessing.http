@@ -1,6 +1,6 @@
-@OrderProcessing_HostAddress = http://localhost:5070
+@OrderProcessing_HostAddress = http://localhost:8080
 
-GET {{OrderProcessing_HostAddress}}/test/
+GET {{OrderProcessing_HostAddress}}/guid
 Accept: application/json
 
 ###
@@ -9,7 +9,7 @@ POST {{OrderProcessing_HostAddress}}/order
 Content-Type: application/json
 
 {
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "id": "9b5e87f8-b057-4180-8974-48bb5420dd13",
   "customerId": 55,
   "items": [
     {
@@ -25,6 +25,6 @@ Content-Type: application/json
 
 
 ###
-GET {{OrderProcessing_HostAddress}}/order
+GET {{OrderProcessing_HostAddress}}/order/9b5e87f8-b057-4180-8974-48bb5420dd13
 Accept: application/json
 
