@@ -28,3 +28,7 @@ Content-Type: application/json
 GET {{OrderProcessing_HostAddress}}/order/9b5e87f8-b057-4180-8974-48bb5420dd13
 Accept: application/json
 
+###
+GET {{OrderProcessing_HostAddress}}/stats
+Accept: application/json
+

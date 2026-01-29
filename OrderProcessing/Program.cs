@@ -19,6 +19,7 @@ builder.Services.AddSingleton(sp =>
     RabbitMqService.CreateAsync(rabbitHost, rabbitQueue).GetAwaiter().GetResult());
 
 builder.Services.AddHostedService<OrderProcessingWorker>();
+builder.Services.AddScoped<StatsService>();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
@@ -71,5 +72,9 @@ app.MapGet("/order/{id:guid}", async (Guid id, AppDbContext db) =>
 
 app.MapGet("/guid", () => Guid.NewGuid())
     .WithName("GetGuid");
+
+app.MapGet("/stats", async (StatsService statsService) =>
+    Results.Ok(await statsService.GetStatsAsync()))
+.WithName("GetStats");
 
 app.Run();

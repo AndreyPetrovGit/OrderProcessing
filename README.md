@@ -52,7 +52,40 @@ curl http://localhost:8080/order/550e8400-e29b-41d4-a716-446655440000
 |--------|----------|-------------|
 | POST | `/order` | Submit a new order (returns 202 Accepted) |
 | GET | `/order/{id}` | Get order by ID |
+| GET | `/stats` | Get queue depth, order counts, and processing metrics |
 | GET | `/guid` | Generate a new GUID (helper endpoint) |
+
+### Stats Endpoint
+
+```bash
+curl http://localhost:8080/stats
+```
+
+> **Note:** This is a simplified solution. For production, metrics like "processed in last minute" would typically use Prometheus + Grafana with built-in .NET `System.Diagnostics.Metrics` classes. We keep it simple here to avoid bloating the infrastructure for this example.
+
+Returns:
+```json
+{
+  "timestamp": "2026-01-29T14:30:00Z",
+  "queue": { "messagesInQueue": 0 },
+  "lastMinute": { "created": 5, "processed": 3 },
+  "totalByStatus": [
+    { "status": "Pending", "count": 2 },
+    { "status": "Processed", "count": 10 }
+  ],
+  "totalOrders": 12
+}
+```
+
+## Monitoring
+
+### RabbitMQ Management UI
+
+- **URL:** http://localhost:15672
+- **Login:** `guest`
+- **Password:** `guest`
+
+Use this UI to monitor queues, message rates, and connections in real-time.
 
 ## Design Decisions
 
