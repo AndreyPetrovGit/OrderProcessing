@@ -14,10 +14,21 @@ docker-compose up --build
 Wait for logs: `Database migrated`, `Connected to RabbitMQ`.
 
 **Test the API:**
+```cmd
+# Create order
+curl -X POST http://localhost:8080/order -H "Content-Type: application/json" -d "{\"id\": \"550e8400-e29b-41d4-a716-446655440000\", \"customerId\": 123, \"items\": [{\"productId\": \"PROD-001\", \"quantity\": 2}]}"
+
+# Check order
+curl http://localhost:8080/order/550e8400-e29b-41d4-a716-446655440000
+
+# View stats (observability)
+curl http://localhost:8080/stats
+```
+
 ```bash
 # Create order
 curl -X POST http://localhost:8080/order -H "Content-Type: application/json" \
-  -d '{"id": "550e8400-e29b-41d4-a716-446655440000", "customerId": 123, "items": [{"productId": "PROD-001", "quantity": 2}]}'
+  -d '{"id": "550e8400-e29b-41d4-a716-446655440002", "customerId": 123, "items": [{"productId": "PROD-001", "quantity": 2}]}'
 
 # Check order
 curl http://localhost:8080/order/550e8400-e29b-41d4-a716-446655440000
