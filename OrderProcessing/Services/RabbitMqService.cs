@@ -4,7 +4,7 @@ using RabbitMQ.Client;
 
 namespace OrderProcessing.Services;
 
-public class RabbitMqService : IAsyncDisposable
+public class RabbitMqService : IRabbitMqService, IAsyncDisposable
 {
     private readonly IConnection _connection;
     private readonly IChannel _channel;

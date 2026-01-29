@@ -15,4 +15,5 @@ public class Order
     public OrderStatus Status { get; set; } = OrderStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ProcessedAt { get; set; }
+    public uint RowVersion { get; set; } // Optimistic locking
 }

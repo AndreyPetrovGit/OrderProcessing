@@ -106,8 +106,8 @@ Use this UI to monitor queues, message rates, and connections in real-time.
 - Database schema is created from C# entity classes
 
 ### Trade-offs
-- **Simplified delivery guarantee**: Save to DB first, then publish to queue. If crash happens between these steps, order stays in `Pending` state. A reconciliation job could be added later.
-- **No Outbox Pattern**: For simplicity, we don't use transactional outbox. This is acceptable for a test assignment.
+- **Outbox Pattern**: Order + OutboxMessage saved in single transaction. OutboxProcessor publishes asynchronously.
+- **Optimistic Locking**: RowVersion prevents concurrent processing of same order.
 - **In-memory queue connection**: Single RabbitMQ connection shared across the app. For production, connection pooling would be better.
 
 ### Pricing Strategy (Current vs Production)
@@ -238,3 +238,47 @@ Set target service URL via environment variable:
 ```bash
 dotnet run --ServiceUrl=http://localhost:8080
 ```
+
+---
+
+## Exactly-Once Delivery
+
+Implemented using **Outbox Pattern** + **Optimistic Locking**.
+
+### How It Works
+
+```
+POST /order:
+  BEGIN TRANSACTION
+    INSERT Order (Pending)
+    INSERT OutboxMessage
+  COMMIT
+
+OutboxProcessor (1s interval):
+  FOR EACH unprocessed → RabbitMQ.Publish()
+
+Worker:
+  IF Status=Processed → skip
+  Process → SaveChanges()
+  CATCH ConcurrencyException → skip
+```
+
+### Failure Scenarios
+
+| Scenario | Solution |
+|----------|----------|
+| DB✓ RabbitMQ✗ | OutboxProcessor retries |
+| Worker crash | RabbitMQ redelivery |
+| ACK failed | Idempotent check |
+| Duplicate msg | Idempotent check |
+| Concurrent workers | RowVersion locking |
+| Duplicate POST | Exists check |
+
+### Run Tests
+
+```bash
+cd OrderProcessing.Tests
+dotnet test
+```
+
+**Result:** 7 tests, all passing

@@ -9,6 +9,7 @@ public class AppDbContext : DbContext
 
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<Inventory> Inventory => Set<Inventory>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -16,11 +17,18 @@ public class AppDbContext : DbContext
         {
             e.HasKey(o => o.Id);
             e.Property(o => o.Status).HasConversion<string>();
+            e.Property(o => o.RowVersion).IsRowVersion();
         });
 
         modelBuilder.Entity<Inventory>(e =>
         {
             e.HasKey(i => i.ProductId);
+        });
+
+        modelBuilder.Entity<OutboxMessage>(e =>
+        {
+            e.HasKey(o => o.Id);
+            e.HasIndex(o => o.ProcessedAt);
         });
     }
 }

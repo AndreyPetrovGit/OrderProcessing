@@ -15,10 +15,12 @@ var rabbitQueue = builder.Configuration["RabbitMq:QueueName"] ?? "orders_queue";
 builder.Services.AddDbContext<AppDbContext>(options => 
     options.UseNpgsql(connectionString));
 
-builder.Services.AddSingleton(sp => 
+builder.Services.AddSingleton<IRabbitMqService>(sp => 
     RabbitMqService.CreateAsync(rabbitHost, rabbitQueue).GetAwaiter().GetResult());
+builder.Services.AddSingleton(sp => (RabbitMqService)sp.GetRequiredService<IRabbitMqService>());
 
 builder.Services.AddHostedService<OrderProcessingWorker>();
+builder.Services.AddHostedService<OutboxProcessor>();
 builder.Services.AddScoped<StatsService>();
 builder.Services.AddOpenApi();
 
@@ -36,14 +38,15 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.MapPost("/order", async (CreateOrderDto dto, AppDbContext db, RabbitMqService rabbit) =>
+app.MapPost("/order", async (CreateOrderDto dto, AppDbContext db) =>
 {
     var existing = await db.Orders.FindAsync(dto.Id);
     if (existing != null)
-    {
         return Results.Accepted($"/order/{dto.Id}", new { dto.Id, Message = "Order already exists" });
-    }
 
+    // Outbox pattern: save order + outbox in single transaction
+    await using var tx = await db.Database.BeginTransactionAsync();
+    
     var order = new Order
     {
         Id = dto.Id,
@@ -53,11 +56,13 @@ app.MapPost("/order", async (CreateOrderDto dto, AppDbContext db, RabbitMqServic
         Status = OrderStatus.Pending,
         CreatedAt = DateTime.UtcNow
     };
-
     db.Orders.Add(order);
-    await db.SaveChangesAsync();
 
-    await rabbit.PublishOrderAsync(order.Id);
+    var outbox = new OutboxMessage { OrderId = dto.Id, CreatedAt = DateTime.UtcNow };
+    db.OutboxMessages.Add(outbox);
+
+    await db.SaveChangesAsync();
+    await tx.CommitAsync();
 
     return Results.Accepted($"/order/{dto.Id}", new { dto.Id, Message = "Order accepted for processing" });
 })

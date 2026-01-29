@@ -96,8 +96,15 @@ public class OrderProcessingWorker : BackgroundService
         order.Status = OrderStatus.Processed;
         order.ProcessedAt = DateTime.UtcNow;
 
-        await db.SaveChangesAsync();
-        _logger.LogInformation("Order {OrderId} processed successfully", orderId);
+        try
+        {
+            await db.SaveChangesAsync();
+            _logger.LogInformation("Order {OrderId} processed successfully", orderId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _logger.LogWarning("Order {OrderId} was already processed by another worker (concurrency)", orderId);
+        }
     }
 
     private record OrderMessage(Guid OrderId);
