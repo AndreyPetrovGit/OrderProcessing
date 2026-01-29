@@ -128,3 +128,113 @@ Use this UI to monitor queues, message rates, and connections in real-time.
 - TotalAmount is calculated server-side during order processing
 - Single instance deployment (no distributed locking needed)
 - Development environment (no HTTPS, no authentication)
+
+---
+
+## Load Test Client
+
+A separate project for simulating order traffic and verifying system behavior.
+
+### Start the Client
+
+```bash
+cd OrderProcessing.Client
+dotnet run
+```
+
+Client runs on **http://localhost:5090**
+
+### Client Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Status and available endpoints |
+| GET | `/status` | Current test status and last result |
+| GET | `/report` | Human-readable verification report |
+| POST | `/start` | Start a 2-minute load test |
+
+### Run a Load Test
+
+```bash
+curl -X POST http://localhost:5090/start
+```
+
+**What happens:**
+1. Client sends orders every 500ms for **2 minutes**
+2. After completion, waits **15 seconds** for processing
+3. Fetches `/stats` from main service and saves result
+4. Check result via `GET /status`
+
+### Check Results
+
+```bash
+curl http://localhost:5090/status
+```
+
+Returns:
+```json
+{
+  "isRunning": false,
+  "lastResult": {
+    "startedAt": "2026-01-29T15:00:00Z",
+    "finishedAt": "2026-01-29T15:02:00Z",
+    "ordersSent": 240,
+    "successCount": 240,
+    "errorCount": 0,
+    "finalStats": {
+      "totalOrders": 250,
+      "queueDepth": 0,
+      "lastMinuteCreated": 0,
+      "lastMinuteProcessed": 5
+    },
+    "allProcessed": true
+  }
+}
+```
+
+### Verification Report
+
+```bash
+curl http://localhost:5090/report
+```
+
+Returns a human-readable verification report:
+```json
+{
+  "summary": "✓ ALL CHECKS PASSED",
+  "duration": "120 seconds",
+  "checks": [
+    "Duplicates: 24 sent, 24 rejected → ✓ OK (all duplicates rejected)",
+    "Queue depth: 0 → ✓ OK (all processed)",
+    "Price mismatches: 110 orders had expectedPrice != calculatedPrice → ℹ INFO (expected behavior, logged on server)",
+    "Orders: 216 unique sent, 216 processed → ✓ OK"
+  ],
+  "details": {
+    "uniqueOrdersSent": 216,
+    "duplicateAttempts": 24,
+    "duplicatesRejected": 24,
+    "priceMismatchCount": 110,
+    "finalStats": {
+      "totalOrders": 220,
+      "processedCount": 216,
+      "queueDepth": 0
+    }
+  }
+}
+```
+
+### What the test verifies:
+
+| Check | Description |
+|-------|-------------|
+| **Duplicates** | ~10% of requests are intentional duplicates. All should be rejected (idempotency). |
+| **Queue depth** | After 15s wait, queue should be empty (all orders processed). |
+| **Price mismatches** | ~50% of orders have `expectedTotalAmount`. Server logs the diff vs calculated price. |
+| **Orders count** | Unique orders sent should match processed count. |
+
+### Configuration
+
+Set target service URL via environment variable:
+```bash
+dotnet run --ServiceUrl=http://localhost:8080
+```
